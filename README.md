@@ -17,7 +17,7 @@ Frontend подключён к FastAPI через `/api/workspace`, `/api/datase
 cd "/home/fofka/Рабочий стол/XAKATON/HACKTON"
 source .venv/bin/activate.fish
 python -m pip check
-python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --env-file .env
 ```
 
 При наличии `frontend/dist` один backend обслуживает и сайт: http://127.0.0.1:8000.
@@ -51,10 +51,22 @@ env TMPDIR="$PWD/.venv/.tmp" XDG_CACHE_HOME="$PWD/.venv/.cache" PIP_NO_CACHE_DIR
 Функция создаёт новую официальную среду для каждого запуска. Контракт адаптера и данных описан в [docs/api.md](docs/api.md).
 Без этой переменной запуск возвращает `ENV_UNAVAILABLE`; импорт аудитории остаётся доступен.
 
-Необязательные `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL` используются только для выбора порядка проверенных фактов в объяснении.
-Без ключа или при ошибке провайдера используется детерминированное объяснение. LLM не вычисляет KPI, не получает абонентские строки и не вызывает инструменты.
-Секреты задаются в окружении процесса. `.env.example` содержит только пустые поля; настоящий `.env` не создан.
-При самостоятельном создании `.env` загрузите его явно через `uvicorn --env-file .env`; файл игнорируется Git.
+LLM подключён в безопасном гибридном режиме. `LOCAL_LLM_*` настраивает локальный OpenAI-compatible сервер (например llama.cpp), а `OPENAI_*` — необязательный облачный fallback. По умолчанию `LLM_MODE=hybrid`: сначала используется локальная Qwen, а OpenAI вызывается только если локальная модель недоступна/вернула невалидный ответ и задан реальный API-ключ.
+
+В `.env.example` уже подготовлены значения для локальной `Qwen/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M` на `http://127.0.0.1:8081/v1` и облачного `gpt-5.4-mini`. Настоящий `OPENAI_API_KEY` храните только в `.env`; этот файл игнорируется Git. Локальный HTTP разрешён только на loopback (`127.0.0.1`, `localhost`, `::1`), облачный OpenAI — только через HTTPS.
+
+LLM не вычисляет KPI, бюджет, uplift и финальный портфель: модель только выбирает порядок ID из уже проверенных сервером фактов. Финальный текст собирается из этих фактов, поэтому при ошибке обеих моделей приложение автоматически использует детерминированное объяснение.
+
+Запуск backend с конфигурацией моделей:
+
+```fish
+cd "/home/fofka/Рабочий стол/XAKATON/HACKTON"
+source .venv/bin/activate.fish
+python scripts/check_llm.py
+python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --env-file .env
+```
+
+Если облачный fallback не нужен, оставьте `OPENAI_API_KEY=` пустым или установите `LLM_MODE=local`. Если хотите проверить только OpenAI, задайте `LLM_MODE=cloud`.
 
 ## Проверки
 

@@ -3,7 +3,12 @@ import json
 import httpx
 import pytest
 
-from ai.models.llm import OpenAIExplanation, provider
+from ai.models.llm import (
+    HybridExplanation,
+    LocalOpenAICompatibleExplanation,
+    OpenAIExplanation,
+    provider,
+)
 
 FACTS = {"audience": "Validated 3 test records.", "portfolio": "No selected campaigns."}
 
@@ -104,3 +109,81 @@ def test_invalid_response_and_unknown_tool_are_not_executed(output):
         lambda _: httpx.Response(200, json={"output": output})
     ).explain(FACTS)
     assert "invalid" in mode and result == " ".join(FACTS.values())
+
+
+
+def test_local_openai_compatible_verified_facts_only():
+    def handler(request):
+        body = json.loads(request.content)
+        assert request.url.path == "/v1/chat/completions"
+        assert body["temperature"] == 0 and body["stream"] is False
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"fact_ids":["portfolio","audience"]}'
+                        }
+                    }
+                ]
+            },
+        )
+
+    model = LocalOpenAICompatibleExplanation(
+        "unit-local",
+        "http://127.0.0.1:8081/v1",
+        transport=httpx.MockTransport(handler),
+    )
+    result, mode = model.explain(FACTS)
+    assert result == FACTS["portfolio"] + " " + FACTS["audience"]
+    assert mode == "llm_ordered_verified_facts"
+
+
+def test_local_provider_rejects_non_loopback_http():
+    with pytest.raises(ValueError):
+        LocalOpenAICompatibleExplanation("unit-local", "http://example.com/v1")
+
+
+def test_hybrid_uses_cloud_after_local_failure(monkeypatch):
+    monkeypatch.setattr("ai.models.llm.time.sleep", lambda _: None)
+    calls = {"local": 0, "cloud": 0}
+
+    def local_handler(request):
+        calls["local"] += 1
+        return httpx.Response(503, json={"error": "local unavailable"})
+
+    def cloud_handler(request):
+        calls["cloud"] += 1
+        return httpx.Response(
+            200,
+            json={
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": '{"fact_ids":["audience"]}',
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+
+    local = LocalOpenAICompatibleExplanation(
+        "unit-local",
+        "http://127.0.0.1:8081/v1",
+        transport=httpx.MockTransport(local_handler),
+    )
+    cloud = OpenAIExplanation(
+        "unit-key-not-real",
+        "unit-cloud",
+        "https://api.openai.com/v1",
+        transport=httpx.MockTransport(cloud_handler),
+    )
+    result, mode = HybridExplanation(local, cloud).explain(FACTS)
+    assert result == FACTS["audience"]
+    assert mode == "llm_ordered_verified_facts"
+    assert calls == {"local": 2, "cloud": 1}
