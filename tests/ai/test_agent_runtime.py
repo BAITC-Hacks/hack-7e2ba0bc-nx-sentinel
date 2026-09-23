@@ -6,7 +6,7 @@ import math
 import pandas as pd
 import pytest
 
-from ai.agents.agent import Agent, Candidate
+from HACKTON.ai.agents.agent_backup import Agent, Candidate
 from ai.models.workspace import DomainError, Snapshot
 from ai.pipelines.data import MAX_BYTES, parse_dataset
 from ai.pipelines.runtime import execute
