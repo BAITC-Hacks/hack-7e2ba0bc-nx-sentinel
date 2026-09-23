@@ -71,6 +71,12 @@ export interface Tariff {
   sms?: number;
 }
 export interface Snapshot {
+  capabilities?: {
+    run_agent: boolean;
+    upload_dataset: boolean;
+    llm_explanations: boolean;
+    reason?: string;
+  };
   schema_version: 1;
   state: AgentState;
   run_id?: string;
@@ -257,6 +263,18 @@ export function parseSnapshot(value: unknown): Snapshot {
       sms: number(p.sms, `${path}.sms`, 'count'),
     })),
   };
+  if (row.capabilities != null) {
+    const caps = record(row.capabilities, 'capabilities');
+    for (const key of ['run_agent', 'upload_dataset', 'llm_explanations']) {
+      if (typeof caps[key] !== 'boolean') throw new Error(`capabilities.${key} must be boolean.`);
+    }
+    result.capabilities = {
+      run_agent: caps.run_agent as boolean,
+      upload_dataset: caps.upload_dataset as boolean,
+      llm_explanations: caps.llm_explanations as boolean,
+      reason: text(caps.reason, 'capabilities.reason'),
+    };
+  }
   for (const [key, fields] of Object.entries({
     budget: ['total', 'exploration_spent', 'campaigns_allocated', 'remaining'],
     contacts: ['total', 'used', 'remaining'],

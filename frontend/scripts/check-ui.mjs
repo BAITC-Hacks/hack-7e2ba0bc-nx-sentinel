@@ -1,5 +1,3 @@
-import { chromium } from '@playwright/test';
-import AxeBuilder from '@axe-core/playwright';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
@@ -12,6 +10,8 @@ process.env.XDG_CONFIG_HOME = fileURLToPath(new URL('../.cache/browser-config', 
 await mkdir(process.env.TMPDIR, { recursive: true });
 const artifacts = fileURLToPath(new URL('../.artifacts', import.meta.url));
 await mkdir(artifacts, { recursive: true });
+const { chromium } = await import('@playwright/test');
+const { default: AxeBuilder } = await import('@axe-core/playwright');
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({
   viewport: { width: 1920, height: 1080 },

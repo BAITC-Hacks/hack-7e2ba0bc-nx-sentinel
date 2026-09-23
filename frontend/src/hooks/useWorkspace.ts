@@ -8,6 +8,19 @@ import {
   validateUrl,
 } from '../services/data';
 import type { Connection, Snapshot, Source } from '../services/data';
+async function apiError(response: Response, fallback: string) {
+  const body = await response.text();
+  if (body.length <= 12000) {
+    try {
+      const value = JSON.parse(body);
+      if (typeof value?.error?.message === 'string') return value.error.message;
+    } catch {
+      /* Non-JSON upstream error: retain the HTTP status below. */
+    }
+  }
+  return `${fallback} HTTP ${response.status}.`;
+}
+const LOCAL_API = { snapshotUrl: '/api/workspace', runUrl: '/api/agent/runs' };
 export function useWorkspace() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [source, setSource] = useState<Source | null>(null);
@@ -40,7 +53,7 @@ export function useWorkspace() {
       });
       if (!response.ok)
         throw new Error(
-          `Data source returned HTTP ${response.status}. Previous data is preserved.`,
+          await apiError(response, 'Data source failed. Previous data is preserved.'),
         );
       const body = await response.text();
       if (body.length > MAX_FILE_BYTES) throw new Error('Snapshot exceeds the 20 MB limit.');
@@ -113,9 +126,65 @@ export function useWorkspace() {
       if (operation.current === id) setBusy(false);
     }
   }, []);
+  const uploadDataset = useCallback(
+    async (file: File) => {
+      if (file.size > MAX_FILE_BYTES) {
+        setError('Dataset exceeds the 20 MB limit.');
+        return false;
+      }
+      if (isRunning(snapshot?.state) || startLock.current || awaitingStart) {
+        setError('Wait for the active run before replacing its data.');
+        return false;
+      }
+      const csv = file.name.toLowerCase().endsWith('.csv');
+      if (!csv && !file.name.toLowerCase().endsWith('.json')) {
+        setError('Choose an audience CSV or a dataset JSON bundle.');
+        return false;
+      }
+      const id = ++operation.current;
+      controller.current?.abort();
+      runningRequest.current = true;
+      setBusy(true);
+      try {
+        const response = await fetch('/api/datasets', {
+          method: 'POST',
+          body: file,
+          headers: {
+            'Content-Type': csv ? 'text/csv' : 'application/json',
+            Accept: 'application/json',
+          },
+          credentials: 'same-origin',
+          signal: AbortSignal.timeout(30000),
+        });
+        if (!response.ok) throw new Error(await apiError(response, 'Dataset upload failed.'));
+        const content = await response.text();
+        if (content.length > MAX_FILE_BYTES)
+          throw new Error('Dataset response exceeds the 20 MB limit.');
+        const next = parseSnapshot(JSON.parse(content));
+        if (id !== operation.current) return false;
+        setSnapshot(next);
+        setConnection(LOCAL_API);
+        setSource({ kind: 'api', name: location.host, loadedAt: new Date().toISOString() });
+        acceptedRun.current = null;
+        setAwaitingStart(false);
+        setError(null);
+        return true;
+      } catch (cause) {
+        if (id === operation.current) setError(getError(cause));
+        return false;
+      } finally {
+        if (id === operation.current) {
+          runningRequest.current = false;
+          setBusy(false);
+        }
+      }
+    },
+    [snapshot?.state, awaitingStart],
+  );
   const runAgent = useCallback(async () => {
     if (
       !connection?.runUrl ||
+      snapshot?.capabilities?.run_agent === false ||
       busy ||
       awaitingStart ||
       startLock.current ||
@@ -135,9 +204,7 @@ export function useWorkspace() {
         credentials: new URL(url).origin === location.origin ? 'same-origin' : 'omit',
       });
       if (!response.ok)
-        throw new Error(
-          `Agent start returned HTTP ${response.status}. No successful start was confirmed.`,
-        );
+        throw new Error(await apiError(response, 'No successful agent start was confirmed.'));
       if (id === operation.current) {
         acceptedRun.current = { runId: snapshot?.run_id };
         setAwaitingStart(true);
@@ -151,7 +218,15 @@ export function useWorkspace() {
       startLock.current = false;
       setStarting(false);
     }
-  }, [connection, busy, awaitingStart, snapshot?.state, snapshot?.run_id, load]);
+  }, [
+    connection,
+    busy,
+    awaitingStart,
+    snapshot?.state,
+    snapshot?.run_id,
+    snapshot?.capabilities?.run_agent,
+    load,
+  ]);
   useEffect(() => {
     if (!connection || source?.kind !== 'api') return;
     const timer = window.setInterval(
@@ -179,6 +254,7 @@ export function useWorkspace() {
     error,
     connect: load,
     importFile,
+    uploadDataset,
     runAgent,
     refresh: () => (connection ? load(connection) : Promise.resolve(false)),
     dismissError: () => setError(null),

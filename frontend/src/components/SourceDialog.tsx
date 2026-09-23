@@ -7,6 +7,7 @@ export function SourceDialog({
   onClose,
   onConnect,
   onImport,
+  onUpload,
   busy,
   error,
 }: {
@@ -14,12 +15,14 @@ export function SourceDialog({
   onClose: () => void;
   onConnect: (connection: Connection, initial: boolean) => Promise<boolean>;
   onImport: () => void;
+  onUpload: (file: File) => Promise<boolean>;
   busy: boolean;
   error: string | null;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [url, setUrl] = useState(initial?.snapshotUrl || '');
-  const [runUrl, setRunUrl] = useState(initial?.runUrl || '');
+  const uploadInput = useRef<HTMLInputElement>(null);
+  const [url, setUrl] = useState(initial?.snapshotUrl || '/api/workspace');
+  const [runUrl, setRunUrl] = useState(initial?.runUrl || '/api/agent/runs');
   const [validation, setValidation] = useState<string | null>(null);
   useEffect(() => {
     const node = dialog.current!;
@@ -114,6 +117,30 @@ export function SourceDialog({
         </span>
         <ArrowRight size={16} />
       </button>
+      <input
+        ref={uploadInput}
+        type="file"
+        accept=".csv,.json"
+        hidden
+        aria-label="Upload audience dataset"
+        onChange={async (event) => {
+          const file = event.target.files?.[0];
+          event.target.value = '';
+          if (file && (await onUpload(file))) onClose();
+        }}
+      />
+      <button
+        className="file-import-card"
+        disabled={busy}
+        onClick={() => uploadInput.current?.click()}
+      >
+        <FileUp size={24} />
+        <span>
+          <strong>Upload audience data</strong>
+          <small>CSV or dataset JSON · local backend · up to 20 MB</small>
+        </span>
+        <ArrowRight size={16} />
+      </button>
       <details className="contract-details">
         <summary>
           <FileJson size={14} />
@@ -129,13 +156,15 @@ export function SourceDialog({
           targeting. Missing metrics remain unavailable. The original CSV is preserved for export.
         </p>
         <p>
-          The API URLs are supplied by you; no backend endpoint is assumed. Cross-origin sources
-          need CORS support. No API keys are stored by this interface.
+          Local API endpoints are prefilled. Audience uploads are sent to this application's backend
+          and must contain id, current_tariff and arpu. JSON bundles may include tariff/channel
+          catalogs and historical transitions. Imported result snapshots stay in your browser. No
+          API keys are stored here.
         </p>
       </details>
       <div className="dialog-footer">
         <ShieldCheck size={14} />
-        Imported files stay in this browser session.
+        Results stay in the browser. Audience uploads stay in your backend session.
       </div>
     </dialog>
   );

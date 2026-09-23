@@ -94,3 +94,28 @@ test('data sources permit HTTP(S) only and reject embedded credentials', () => {
     assert.throws(() => validateUrl(url, base));
   assert.equal(validateUrl('/api/workspace', base), 'http://localhost:5173/api/workspace');
 });
+test('backend capabilities preserve the reason why a real agent cannot run', () => {
+  const snapshot = parseSnapshot({
+    schema_version: 1,
+    state: 'DATA_READY',
+    capabilities: {
+      run_agent: false,
+      upload_dataset: true,
+      llm_explanations: false,
+      reason: 'Official environment unavailable.',
+    },
+  });
+  assert.equal(snapshot.capabilities?.run_agent, false);
+  assert.equal(snapshot.capabilities?.reason, 'Official environment unavailable.');
+  assert.throws(() =>
+    parseSnapshot({
+      schema_version: 1,
+      state: 'INITIAL',
+      capabilities: {
+        run_agent: 'false',
+        upload_dataset: true,
+        llm_explanations: false,
+      },
+    }),
+  );
+});

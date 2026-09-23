@@ -100,7 +100,8 @@ export default function App() {
   const canRun =
     !!connection?.runUrl &&
     source?.kind === 'api' &&
-    snapshot?.state !== 'INITIAL' &&
+    snapshot?.capabilities?.run_agent !== false &&
+    (snapshot?.state !== 'INITIAL' || snapshot?.capabilities?.run_agent === true) &&
     !isRunning(snapshot?.state) &&
     !busy &&
     !starting &&
@@ -298,7 +299,8 @@ export default function App() {
                     !canRun
                       ? isRunning(snapshot?.state)
                         ? 'The agent is already running'
-                        : 'Run Agent requires a connected source with a start endpoint and ready state'
+                        : snapshot?.capabilities?.reason ||
+                          'Run Agent requires a connected source with a start endpoint and ready state'
                       : undefined
                   }
                 >
@@ -320,7 +322,8 @@ export default function App() {
                         ? 'Start request accepted. Waiting for the source to confirm a new run.'
                         : isRunning(snapshot?.state)
                           ? 'The agent is already running.'
-                          : 'Connect a ready data source and its agent start URL.'}
+                          : snapshot?.capabilities?.reason ||
+                            'Connect a ready data source and its agent start URL.'}
                     </span>
                   )}
                 </span>
@@ -456,6 +459,7 @@ export default function App() {
           onClose={() => setSourceOpen(false)}
           onConnect={workspace.connect}
           onImport={openImport}
+          onUpload={workspace.uploadDataset}
           busy={busy}
           error={error}
         />
